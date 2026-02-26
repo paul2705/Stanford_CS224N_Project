@@ -44,36 +44,26 @@ class GPT2Model(GPTPreTrainedModel):
     self.init_weights()
 
   def embed(self, input_ids):
-    # input_shape = input_ids.size()
-    # seq_length = input_shape[1]
-
-    # inputs_embeds = None
-
-    # ### YOUR CODE HERE
-    # raise NotImplementedError
-
-
-    # pos_ids = self.position_ids[:, :seq_length]
-    # pos_embeds = None
-
-    # ### TODO: Use pos_ids to get position embedding from self.pos_embedding into pos_embeds.
-    # ###       Then, add two embeddings together; then apply dropout and return.
-    # ### YOUR CODE HERE
-    # raise NotImplementedError
     input_shape = input_ids.size()
     seq_length = input_shape[1]
 
-    # token (word) embeddings: [bs, seq_len, hidden]
+    inputs_embeds = None
+
+    ### YOUR CODE HERE
+    # word embeddings [bs, seq_len, hidden]
     inputs_embeds = self.word_embedding(input_ids)
 
-    # position ids + position embeddings: [1, seq_len] -> [1, seq_len, hidden]
+    # positional embeddings [1, seq_len, hidden]
     pos_ids = self.position_ids[:, :seq_length]
+    pos_embeds = None
+
+    ### DONE: Use pos_ids to get position embedding from self.pos_embedding into pos_embeds.
+    ###       Then, add two embeddings together; then apply dropout and return.
     pos_embeds = self.pos_embedding(pos_ids)
 
-    # sum + dropout
-    hidden_states = inputs_embeds + pos_embeds
-    hidden_states = self.embed_dropout(hidden_states)
-    return hidden_states
+    embeddings = inputs_embeds + pos_embeds
+    embeddings = self.embed_dropout(embeddings)
+    return embeddings
 
 
   def encode(self, hidden_states, attention_mask):
