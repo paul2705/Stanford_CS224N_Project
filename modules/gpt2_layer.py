@@ -23,7 +23,7 @@ class GPT2Layer(nn.Module):
 
   def add(self, input, output, dense_layer, dropout):
     """
-    TODO: Implement this helper method for the forward function.
+    DONE: Implement this helper method for the forward function.
       - This function is applied after the multi-head attention layer as well as after the feed forward layer.
       - GPT-2 layer applies dropout to the transformed output of each sub-layer,
         before it is added to the sub-layer input. WE DO NOT APPLY THE LAYER NORM
@@ -35,14 +35,16 @@ class GPT2Layer(nn.Module):
     input:  [bs, seq_len, hidden]
     output: [bs, seq_len, hidden]  (sub-layer output before the projection)
     """
-    projected = dense_layer(output)
-    projected = dropout(projected)
-    return input + projected
+    # Transform the sub-layer output
+    transformed_output = dense_layer(output)
+    # Apply dropout
+    dropped_output = dropout(transformed_output)
+    return input + dropped_output
 
 
   def forward(self, hidden_states, attention_mask):
     """
-    TODO: Implement the forward pass. Some key points to consider:
+    DONE: Implement the forward pass. Some key points to consider:
            - A multi-head attention layer (CausalSelfAttention) that computes self-attention based on masked inputs.
            - Layer normalization applied *before* the attention layer and feed-forward layer.
            - Apply dropout, residual connection, and layer normalization according to the plot in the assignment. (Use self.add)
@@ -53,23 +55,29 @@ class GPT2Layer(nn.Module):
       x = x + Dropout(AttnDense(SelfAttn(LN(x))))
       x = x + Dropout(OutDense(GELU(IntermDense(LN(x)))))
     """
-    # ---- Self-attention block ----
-    normed = self.attention_layer_norm(hidden_states)
-    attn_out = self.self_attention(normed, attention_mask)  # [bs, seq_len, hidden]
+    # Pre-LayerNorm
+    attention_normed = self.attention_layer_norm(hidden_states)
+    # CausalSelfAttention
+    attention_out = self.self_attention(attention_normed, attention_mask)
     hidden_states = self.add(
       input=hidden_states,
-      output=attn_out,
+      output=attention_out,
       dense_layer=self.attention_dense,
       dropout=self.attention_dropout
     )
 
-    # ---- Feed-forward block ----
-    normed = self.out_layer_norm(hidden_states)
-    ff = self.interm_dense(normed)          # [bs, seq_len, intermediate]
-    ff = self.interm_af(ff)                 # GELU
-    ff = self.out_dense(ff)                 # [bs, seq_len, hidden]
-    ff = self.out_dropout(ff)               # dropout on FF output
-    hidden_states = hidden_states + ff      # residual
+    # Pre-LayerNorm
+    ffn_normed = self.out_layer_norm(hidden_states)
+    # Feed-forward
+    interm_output = self.interm_dense(ffn_normed)
+    # GELU Activation
+    interm_gelu = self.interm_af(interm_output)
+    hidden_states = self.add(
+      input=hidden_states, 
+      output=interm_gelu, 
+      dense_layer=self.out_dense, 
+      dropout=self.out_dropout
+    )
 
     return hidden_states
 

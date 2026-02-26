@@ -37,12 +37,10 @@ class CausalSelfAttention(nn.Module):
     attention_mask:   [bs, 1, 1, seq_len]  (typically 1 for keep, 0 for mask OR additive -inf style)
     returns:          [bs, seq_len, hidden_size]
     """
-    # Compute the dot products of the query with all keys
-    # [bs, num_heads, seq_len, seq_len]
+    # Compute the dot products of the query with all keys [bs, num_heads, seq_len, seq_len]
     attention_scores = torch.matmul(query, key.transpose(-1, -2))
 
-    # Scale by the square root of the head dimension 
-    # [bs, num_heads, seq_len, seq_len]
+    # Scale by the square root of the head dimension [bs, num_heads, seq_len, seq_len]
     attention_scores = attention_scores / (self.attention_head_size ** 0.5)
 
     # Apply an upper-triangular mask (causal mask) to the attention weights
@@ -50,18 +48,10 @@ class CausalSelfAttention(nn.Module):
     # [1, 1, seq_len, seq_len]
     causal_mask = torch.tril(torch.ones((seq_len, seq_len), device=attention_scores.device, dtype=torch.bool)).view(1, 1, seq_len, seq_len)
     # [bs, num_heads, seq_len, seq_len]
-    attention_scores = attention_scores.masked_fill(causal_mask == 0, float("-inf"))
+    attention_scores = attention_scores.masked_fill(causal_mask == 0, -1e6)
 
-    # Apply provided attention_mask (binary or additive)
-    # [bs, num_heads, seq_len, seq_len]
-    if attention_mask is not None:
-      if attention_mask.dtype == torch.bool:
-        attention_scores = attention_scores.masked_fill(attention_mask == 0, float("-inf"))
-      else:
-        if attention_mask.max() <= 1 and attention_mask.min() >= 0:
-          attention_scores = attention_scores.masked_fill(attention_mask == 0, float("-inf"))
-        else:
-          attention_scores = attention_scores + attention_mask
+    # Apply provided attention_mask [bs, num_heads, seq_len, seq_len]
+    attention_scores = attention_scores + attention_mask
 
     # Apply a softmax function to obtain the weights on the values
     # [bs, num_heads, seq_len, seq_len]
