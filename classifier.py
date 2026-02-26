@@ -53,16 +53,17 @@ class GPT2SentimentClassifier(torch.nn.Module):
       elif config.fine_tune_mode == 'full-model':
         param.requires_grad = True
 
-    ### DONE: Create any instance variables you need to classify the sentiment of BERT embeddings.
+    ### TODO: Create any instance variables you need to classify the sentiment of BERT embeddings.
     ### YOUR CODE HERE
     self.dropout = torch.nn.Dropout(config.hidden_dropout_prob)
     self.classifier = torch.nn.Linear(config.hidden_size, self.num_labels)
 
 
+
   def forward(self, input_ids, attention_mask):
     '''Takes a batch of sentences and returns logits for sentiment classes'''
 
-    ### DONE: The final GPT contextualized embedding is the hidden state of the last token.
+    ### TODO: The final GPT contextualized embedding is the hidden state of the last token.
     ###       HINT: You should consider what is an appropriate return value given that
     ###       the training loop currently uses F.cross_entropy as the loss function.
     ### YOUR CODE HERE
@@ -376,7 +377,8 @@ if __name__ == "__main__":
     filepath='sst-classifier.pt',
     lr=args.lr,
     use_gpu=args.use_gpu,
-    epochs=args.epochs,
+    # epochs=args.epochs,
+    epochs=5,
     batch_size=args.batch_size,
     hidden_dropout_prob=args.hidden_dropout_prob,
     train='data/ids-sst-train.csv',
@@ -397,7 +399,8 @@ if __name__ == "__main__":
     filepath='cfimdb-classifier.pt',
     lr=args.lr,
     use_gpu=args.use_gpu,
-    epochs=args.epochs,
+    # epochs=args.epochs,
+    epochs=5,
     batch_size=8,
     hidden_dropout_prob=args.hidden_dropout_prob,
     train='data/ids-cfimdb-train.csv',
