@@ -29,8 +29,15 @@ class GPT2Layer(nn.Module):
         before it is added to the sub-layer input. WE DO NOT APPLY THE LAYER NORM
         IN THIS FUNCTION.
     """
-    ### YOUR CODE HERE
-    raise NotImplementedError
+    """
+    Applies: dense -> dropout -> residual add
+    NOTE: No layer norm here (pre-LN GPT-2 style).
+    input:  [bs, seq_len, hidden]
+    output: [bs, seq_len, hidden]  (sub-layer output before the projection)
+    """
+    projected = dense_layer(output)
+    projected = dropout(projected)
+    return input + projected
 
 
   def forward(self, hidden_states, attention_mask):
@@ -41,7 +48,28 @@ class GPT2Layer(nn.Module):
            - Apply dropout, residual connection, and layer normalization according to the plot in the assignment. (Use self.add)
            - A feed-forward layer that applies transformations to further refine the hidden states.
     """
+    """
+    Pre-LN GPT-2 block:
+      x = x + Dropout(AttnDense(SelfAttn(LN(x))))
+      x = x + Dropout(OutDense(GELU(IntermDense(LN(x)))))
+    """
+    # ---- Self-attention block ----
+    normed = self.attention_layer_norm(hidden_states)
+    attn_out = self.self_attention(normed, attention_mask)  # [bs, seq_len, hidden]
+    hidden_states = self.add(
+      input=hidden_states,
+      output=attn_out,
+      dense_layer=self.attention_dense,
+      dropout=self.attention_dropout
+    )
 
-    ### YOUR CODE HERE
-    raise NotImplementedError
+    # ---- Feed-forward block ----
+    normed = self.out_layer_norm(hidden_states)
+    ff = self.interm_dense(normed)          # [bs, seq_len, intermediate]
+    ff = self.interm_af(ff)                 # GELU
+    ff = self.out_dense(ff)                 # [bs, seq_len, hidden]
+    ff = self.out_dropout(ff)               # dropout on FF output
+    hidden_states = hidden_states + ff      # residual
+
+    return hidden_states
 
