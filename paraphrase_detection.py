@@ -69,55 +69,36 @@ def seed_everything(seed=11711):
     torch.backends.cudnn.deterministic = True
 
 
-# class ParaphraseGPT(nn.Module):
-#   """Your GPT-2 Model designed for paraphrase detection."""
-
-#   def __init__(self, args):
-#     super().__init__()
-#     self.gpt = GPT2Model.from_pretrained(model=args.model_size, d=args.d, l=args.l, num_heads=args.num_heads)
-#     self.paraphrase_detection_head = nn.Linear(args.d, 2)  # Paraphrase detection has two outputs: 1 (yes) or 0 (no).
-
-#     # By default, fine-tune the full model.
-#     for param in self.gpt.parameters():
-#       param.requires_grad = True
-
-#   def forward(self, input_ids, attention_mask):
-#     """
-#     TODO: Predict the label of the token using the paraphrase_detection_head Linear layer.
-
-#     We structure the input as:
-
-#       'Is "{s1}" a paraphrase of "{s2}"? Answer "yes" or "no": '
-
-#     So you want to find the prediction for the next token at the end of this sentence. Optimistically, it will be the
-#     token "yes" (byte pair encoding index of 8505) for examples that are paraphrases or "no" (byte pair encoding index
-#      of 3919) for examples that are not paraphrases.
-#     """
-
-#     'Takes a batch of sentences and produces embeddings for them.'
-#     ### YOUR CODE HERE
-#     raise NotImplementedError
-
 class ParaphraseGPT(nn.Module):
   """Your GPT-2 Model designed for paraphrase detection."""
 
   def __init__(self, args):
     super().__init__()
     self.gpt = GPT2Model.from_pretrained(model=args.model_size, d=args.d, l=args.l, num_heads=args.num_heads)
-    self.paraphrase_detection_head = nn.Linear(args.d, 2)
+    self.paraphrase_detection_head = nn.Linear(args.d, 2)  # Paraphrase detection has two outputs: 1 (yes) or 0 (no).
 
+    # By default, fine-tune the full model.
     for param in self.gpt.parameters():
       param.requires_grad = True
 
   def forward(self, input_ids, attention_mask):
     """
-    input_ids: [bs, seq_len]
-    attention_mask: [bs, seq_len]
-    returns logits: [bs, 2]
+    DONE: Predict the label of the token using the paraphrase_detection_head Linear layer.
+
+    We structure the input as:
+
+      'Is "{s1}" a paraphrase of "{s2}"? Answer "yes" or "no": '
+
+    So you want to find the prediction for the next token at the end of this sentence. Optimistically, it will be the
+    token "yes" (byte pair encoding index of 8505) for examples that are paraphrases or "no" (byte pair encoding index
+     of 3919) for examples that are not paraphrases.
     """
+
+    'Takes a batch of sentences and produces embeddings for them.'
+    ### YOUR CODE HERE
     outputs = self.gpt(input_ids=input_ids, attention_mask=attention_mask)
-    last_token = outputs["last_token"]                 # [bs, d]
-    logits = self.paraphrase_detection_head(last_token) # [bs, 2]
+    last_token = outputs["last_token"]
+    logits = self.paraphrase_detection_head(last_token)
     return logits
 
 
