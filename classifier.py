@@ -375,12 +375,14 @@ if __name__ == "__main__":
   print('Training Sentiment Classifier on SST...')
   config = SimpleNamespace(
     filepath='sst-classifier.pt',
-    lr=args.lr,
+    # lr=args.lr,
+    lr=2e-5,
     use_gpu=args.use_gpu,
     # epochs=args.epochs,
     epochs=5,
     batch_size=args.batch_size,
-    hidden_dropout_prob=args.hidden_dropout_prob,
+    # hidden_dropout_prob=args.hidden_dropout_prob,
+    hidden_dropout_prob=0.5,
     train='data/ids-sst-train.csv',
     dev='data/ids-sst-dev.csv',
     test='data/ids-sst-test-student.csv',
@@ -397,7 +399,8 @@ if __name__ == "__main__":
   print('Training Sentiment Classifier on cfimdb...')
   config = SimpleNamespace(
     filepath='cfimdb-classifier.pt',
-    lr=args.lr,
+    # lr=args.lr,
+    lr=2e-5,
     use_gpu=args.use_gpu,
     # epochs=args.epochs,
     epochs=5,
