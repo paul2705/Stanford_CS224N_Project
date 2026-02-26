@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Model checkpoints & weights (use LFS for these)
+# *.pt and *.bin are tracked via LFS in .gitattributes
+
+# NumPy / data artifacts
+# *.npy tracked via LFS
+
+# Logs & outputs
+*.log
+runs/
+wandb/
+outputs/
+checkpoints/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Submission archives
+*.zip
+*.tar.gz
+
+# Temp
+*.tmp
+*.bak
