@@ -37,38 +37,43 @@ class CausalSelfAttention(nn.Module):
     attention_mask:   [bs, 1, 1, seq_len]  (typically 1 for keep, 0 for mask OR additive -inf style)
     returns:          [bs, seq_len, hidden_size]
     """
-    b, h, t, d = query.shape
+    # Compute the dot products of the query with all keys
+    # [bs, num_heads, seq_len, seq_len]
+    attention_scores = torch.matmul(query, key.transpose(-1, -2))
 
-    # Scaled dot-product attention scores: [bs, heads, tgt_len, src_len]
-    attn_scores = torch.matmul(query, key.transpose(-1, -2)) / (d ** 0.5)
+    # Scale by the square root of the head dimension 
+    # [bs, num_heads, seq_len, seq_len]
+    attention_scores = attention_scores / (self.attention_head_size ** 0.5)
 
-    # Causal mask (prevent attending to future): [1, 1, t, t]
-    causal = torch.tril(torch.ones(t, t, device=attn_scores.device, dtype=torch.bool)).view(1, 1, t, t)
-    attn_scores = attn_scores.masked_fill(~causal, float("-inf"))
+    # Apply an upper-triangular mask (causal mask) to the attention weights
+    seq_len = attention_scores.size(-1)
+    # [1, 1, seq_len, seq_len]
+    causal_mask = torch.tril(torch.ones((seq_len, seq_len), device=attention_scores.device, dtype=torch.bool)).view(1, 1, seq_len, seq_len)
+    # [bs, num_heads, seq_len, seq_len]
+    attention_scores = attention_scores.masked_fill(causal_mask == 0, float("-inf"))
 
-    # Apply provided attention_mask over source positions (last dim)
-    # Support either:
-    #  - binary mask (1 keep, 0 mask)
-    #  - additive mask (0 keep, -inf or large negative mask)
+    # Apply provided attention_mask (binary or additive)
+    # [bs, num_heads, seq_len, seq_len]
     if attention_mask is not None:
       if attention_mask.dtype == torch.bool:
-        # True = keep, False = mask
-        attn_scores = attn_scores.masked_fill(~attention_mask, float("-inf"))
+        attention_scores = attention_scores.masked_fill(attention_mask == 0, float("-inf"))
       else:
-        # If it's 0/1: convert to additive; if already additive: just add it.
         if attention_mask.max() <= 1 and attention_mask.min() >= 0:
-          attn_scores = attn_scores.masked_fill(attention_mask == 0, float("-inf"))
+          attention_scores = attention_scores.masked_fill(attention_mask == 0, float("-inf"))
         else:
-          attn_scores = attn_scores + attention_mask
+          attention_scores = attention_scores + attention_mask
 
-    # Softmax -> probs
-    attn_probs = torch.softmax(attn_scores, dim=-1)
-    attn_probs = self.dropout(attn_probs)
+    # Apply a softmax function to obtain the weights on the values
+    # [bs, num_heads, seq_len, seq_len]
+    attention_probs = torch.softmax(attention_scores, dim=-1)
 
-    # Weighted sum of values: [bs, heads, tgt_len, head_dim]
-    context = torch.matmul(attn_probs, value)
+    # Apply attention dropout [bs, num_heads, seq_len, seq_len]
+    attention_probs = self.dropout(attention_probs)
 
-    # Merge heads back: [bs, tgt_len, hidden_size]
+    # Weighted sum of values [bs, num_heads, seq_len, head_dim]
+    context = torch.matmul(attention_probs, value)
+
+    # Merge heads back [bs, seq_len, hidden_size]
     context = rearrange(context, "b h t d -> b t (h d)")
     return context
 
