@@ -376,7 +376,8 @@ def get_args():
 
 if __name__ == "__main__":
   args = get_args()
-  seed_everything(args.seed)
+  # seed_everything(args.seed)
+  seed_everything(123)
 
   print('Training Sentiment Classifier on SST...')
   config = SimpleNamespace(
