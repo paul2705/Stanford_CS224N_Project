@@ -59,3 +59,5 @@ checkpoints/
 # Temp
 *.tmp
 *.bak
+
+old_*
