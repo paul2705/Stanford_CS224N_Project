@@ -34,15 +34,39 @@ from optimizer import AdamW
 
 TQDM_DISABLE = False
 
+
+def get_device(use_gpu: bool) -> torch.device:
+  """Select the best available compute device.
+
+  Priority when `use_gpu` is True:
+    1) CUDA (NVIDIA)
+    2) MPS (Apple Silicon)
+    3) CPU
+  """
+  if not use_gpu:
+    return torch.device('cpu')
+
+  if torch.cuda.is_available():
+    return torch.device('cuda')
+
+  # Apple Silicon acceleration
+  if hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
+    return torch.device('mps')
+
+  return torch.device('cpu')
+
 # Fix the random seed.
 def seed_everything(seed=11711):
   random.seed(seed)
   np.random.seed(seed)
   torch.manual_seed(seed)
-  torch.cuda.manual_seed(seed)
-  torch.cuda.manual_seed_all(seed)
-  torch.backends.cudnn.benchmark = False
-  torch.backends.cudnn.deterministic = True
+
+  # CUDA-only settings (safe on systems without CUDA)
+  if torch.cuda.is_available():
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
 
 
 # class ParaphraseGPT(nn.Module):
@@ -113,7 +137,11 @@ def save_model(model, optimizer, args, filepath):
 
 def train(args):
   """Train GPT-2 for paraphrase detection on the Quora dataset."""
-  device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
+  device = get_device(args.use_gpu)
+  print(
+    f"Using device: {device} "
+    f"(cuda={torch.cuda.is_available()}, mps={hasattr(torch.backends, 'mps') and torch.backends.mps.is_available()})"
+  )
   # Create the data and its corresponding datasets and dataloader.
   para_train_data = load_paraphrase_data(args.para_train)
   para_dev_data = load_paraphrase_data(args.para_dev)
@@ -144,7 +172,7 @@ def train(args):
       b_ids, b_mask, labels = batch['token_ids'], batch['attention_mask'], batch['labels'].flatten()
       b_ids = b_ids.to(device)
       b_mask = b_mask.to(device)
-      labels = labels.to(device)
+      labels = (labels == 8505).long().to(device)  # map "yes"(8505)->1, "no"(3919)->0
 
       # Compute the loss, gradients, and update the model's parameters.
       optimizer.zero_grad()
@@ -171,8 +199,8 @@ def train(args):
 @torch.no_grad()
 def test(args):
   """Evaluate your model on the dev and test datasets; save the predictions to disk."""
-  device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
-  saved = torch.load(args.filepath)
+  device = get_device(args.use_gpu)
+  saved = torch.load(args.filepath, map_location='cpu')
 
   model = ParaphraseGPT(saved['args'])
   model.load_state_dict(saved['model'])

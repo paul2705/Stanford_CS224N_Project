@@ -33,6 +33,7 @@ def model_eval_paraphrase(dataloader, model, device):
     logits = model(b_ids, b_mask).cpu().numpy()
     preds = np.argmax(logits, axis=1).flatten()
 
+    labels = (labels == 8505).long()  # map "yes"(8505)->1, "no"(3919)->0
     y_true.extend(labels)
     y_pred.extend(preds)
     sent_ids.extend(b_sent_ids)
