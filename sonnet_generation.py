@@ -309,7 +309,7 @@ def get_args():
   parser.add_argument("--use_gpu", action='store_true')
 
   # Generation parameters.
-  parser.add_argument("--temperature", type=float, help="softmax temperature.", default=0.7)
+  parser.add_argument("--temperature", type=float, help="softmax temperature.", default=0.9)
   parser.add_argument("--top_p", type=float, help="Cumulative probability distribution for nucleus sampling.",
                       default=0.85)
 
