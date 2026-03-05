@@ -8,6 +8,7 @@ class CausalSelfAttention(nn.Module):
   def __init__(self, config):
     super().__init__()
 
+    self.sliding_window_size = getattr(config, "sliding_window_size", None)
     self.num_attention_heads = config.num_attention_heads
     self.attention_head_size = int(config.hidden_size / config.num_attention_heads)
     self.all_head_size = self.num_attention_heads * self.attention_head_size
@@ -43,29 +44,65 @@ class CausalSelfAttention(nn.Module):
     # Scale by the square root of the head dimension [bs, num_heads, seq_len, seq_len]
     attention_scores = attention_scores / (self.attention_head_size ** 0.5)
 
-    # Apply an upper-triangular mask (causal mask) to the attention weights
-    seq_len = attention_scores.size(-1)
-    # [1, 1, seq_len, seq_len]
-    causal_mask = torch.tril(torch.ones((seq_len, seq_len), device=attention_scores.device, dtype=torch.bool)).view(1, 1, seq_len, seq_len)
-    # [bs, num_heads, seq_len, seq_len]
-    attention_scores = attention_scores.masked_fill(causal_mask == 0, -1e6)
+    # shapes
+    seq_len_q = attention_scores.size(-2)
+    seq_len_k = attention_scores.size(-1)
+    device = attention_scores.device
 
-    # Apply provided attention_mask [bs, num_heads, seq_len, seq_len]
+    # indices
+    i = torch.arange(seq_len_q, device=device).view(seq_len_q, 1)  # query positions
+    j = torch.arange(seq_len_k, device=device).view(1, seq_len_k)  # key positions
+
+    # causal: allow attending only to the past (and self)
+    causal_ok = (j <= i)
+
+    # sliding window: allow only last W tokens (including self)
+    W = getattr(self, "sliding_window_size", None)
+    if W is None:
+        print("W/O Sliding Window")
+        window_ok = torch.ones((seq_len_q, seq_len_k), device=device, dtype=torch.bool)
+    else:
+        print("W Sliding Window")
+        # token i can attend to keys j where i - j < W  (i.e., j >= i-(W-1))
+        window_ok = (i - j < W)
+
+    local_causal = (causal_ok & window_ok).view(1, 1, seq_len_q, seq_len_k)
+
+    attention_scores = attention_scores.masked_fill(~local_causal, -1e6)
+
+    # keep your existing additive mask behavior
     attention_scores = attention_scores + attention_mask
 
-    # Apply a softmax function to obtain the weights on the values
-    # [bs, num_heads, seq_len, seq_len]
     attention_probs = torch.softmax(attention_scores, dim=-1)
-
-    # Apply attention dropout [bs, num_heads, seq_len, seq_len]
     attention_probs = self.dropout(attention_probs)
 
-    # Weighted sum of values [bs, num_heads, seq_len, head_dim]
     context = torch.matmul(attention_probs, value)
-
-    # Merge heads back [bs, seq_len, hidden_size]
     context = rearrange(context, "b h t d -> b t (h d)")
     return context
+
+    # # Apply an upper-triangular mask (causal mask) to the attention weights
+    # seq_len = attention_scores.size(-1)
+    # # [1, 1, seq_len, seq_len]
+    # causal_mask = torch.tril(torch.ones((seq_len, seq_len), device=attention_scores.device, dtype=torch.bool)).view(1, 1, seq_len, seq_len)
+    # # [bs, num_heads, seq_len, seq_len]
+    # attention_scores = attention_scores.masked_fill(causal_mask == 0, -1e6)
+
+    # # Apply provided attention_mask [bs, num_heads, seq_len, seq_len]
+    # attention_scores = attention_scores + attention_mask
+
+    # # Apply a softmax function to obtain the weights on the values
+    # # [bs, num_heads, seq_len, seq_len]
+    # attention_probs = torch.softmax(attention_scores, dim=-1)
+
+    # # Apply attention dropout [bs, num_heads, seq_len, seq_len]
+    # attention_probs = self.dropout(attention_probs)
+
+    # # Weighted sum of values [bs, num_heads, seq_len, head_dim]
+    # context = torch.matmul(attention_probs, value)
+
+    # # Merge heads back [bs, seq_len, hidden_size]
+    # context = rearrange(context, "b h t d -> b t (h d)")
+    # return context
 
 
   def forward(self, hidden_states, attention_mask):

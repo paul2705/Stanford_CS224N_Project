@@ -206,10 +206,13 @@ class GPT2Config(PretrainedConfig):
           gradient_checkpointing=False,
           position_embedding_type="learnable",
           use_cache=True,
+          sliding_window_size=None, 
           **kwargs
   ):
     super().__init__(pad_token_id=pad_token_id, **kwargs)
 
+
+    self.sliding_window_size = sliding_window_size
     self.vocab_size = vocab_size
     self.hidden_size = hidden_size
     self.num_hidden_layers = num_hidden_layers
