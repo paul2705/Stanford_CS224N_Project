@@ -304,7 +304,7 @@ def get_args():
   parser.add_argument("--held_out_sonnet_path", type=str, default="data/sonnets_held_out.txt")
   parser.add_argument("--sonnet_out", type=str, default="predictions/generated_sonnets.txt")
 
-  parser.add_argument("--seed", type=int, default=11711)
+  parser.add_argument("--seed", type=int, default=123) #11711
   parser.add_argument("--epochs", type=int, default=10)
   parser.add_argument("--use_gpu", action='store_true')
 
