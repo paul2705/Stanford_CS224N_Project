@@ -126,7 +126,7 @@ class SonnetGPT(nn.Module):
 
     # generated_output = self.tokenizer.decode(token_ids[0].cpu().numpy().tolist())[3:]
     prompt_len = encoding.shape[1]
-    print(prompt_len)
+    # print(prompt_len)
     new_tokens = token_ids[0, prompt_len:]  # (new_len,)
     generated_output = self.tokenizer.decode(new_tokens.cpu().numpy().tolist())
 
