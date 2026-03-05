@@ -9,7 +9,7 @@ import os
 import json
 from utils import CONFIG_NAME, hf_bucket_url, cached_path, is_remote_url
 
-
+#test
 class PretrainedConfig(object):
   model_type: str = ""
   is_composition: bool = False
