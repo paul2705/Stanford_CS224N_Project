@@ -153,12 +153,34 @@ def train(args):
   # Create the held-out dataset: these only have the first 3 lines. Your job is to fill in the rest!
   held_out_sonnet_dataset = SonnetsDataset(args.held_out_sonnet_path)
 
+  n = len(sonnet_dataset)
+  dev_size = max(1, int(0.1 * n))
+  train_size = n - dev_size
+
+  train_dataset, dev_dataset = torch.utils.data.random_split(
+      sonnet_dataset,
+      [train_size, dev_size],
+      generator=torch.Generator().manual_seed(args.seed)
+  )
+
+  train_dataloader = DataLoader(
+      train_dataset, shuffle=True, batch_size=args.batch_size,
+      collate_fn=sonnet_dataset.collate_fn
+  )
+  dev_dataloader = DataLoader(
+      dev_dataset, shuffle=False, batch_size=args.batch_size,
+      collate_fn=sonnet_dataset.collate_fn
+  )
+
   args = add_arguments(args)
   model = SonnetGPT(args)
   model = model.to(device)
 
   lr = args.lr
   optimizer = AdamW(model.parameters(), lr=lr)
+  best_dev_loss = float('inf')
+  patience = 2            # you can tune
+  patience_left = patience
 
   # Run for the specified number of epochs.
   for epoch in range(args.epochs):
@@ -166,7 +188,7 @@ def train(args):
     train_loss = 0
     num_batches = 0
 
-    for batch in tqdm(sonnet_dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
+    for batch in tqdm(train_dataloader, desc=f'train-{epoch}', disable=TQDM_DISABLE):
       # Get the input and move it to the gpu (I do not recommend training this model on CPU).
       b_ids, b_mask = batch['token_ids'], batch['attention_mask']
       b_ids = b_ids.to(device)
@@ -191,16 +213,61 @@ def train(args):
     for batch in held_out_sonnet_dataset:
       encoding = model.tokenizer(batch[1], return_tensors='pt', padding=True, truncation=True).to(device)
       output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)
-      print(f'{batch[1]}{output[1]}\n\n')
+      print(f'{batch[1]}\n|->|{output[1]}\n\n')
 
     # TODO: consider a stopping condition to prevent overfitting on the small dataset of sonnets.
-    save_model(model, optimizer, args, f'{epoch}_{args.filepath}')
+    dev_loss, dev_ppl = eval_lm_loss(model, dev_dataloader, device)
+    print(f"Epoch {epoch}: dev loss :: {dev_loss:.3f} | dev ppl :: {dev_ppl:.2f}")
 
+    # save best + early stopping
+    if dev_loss < best_dev_loss - 1e-4:   # small margin avoids tiny noise
+      best_dev_loss = dev_loss
+      patience_left = patience
+      save_model(model, optimizer, args, f'best_{args.filepath}')
+    else:
+      patience_left -= 1
+      print(f"No dev improvement. Patience left: {patience_left}")
+      if patience_left <= 0:
+        print("Early stopping!")
+        break
+    # save_model(model, optimizer, args, f'{epoch}_{args.filepath}')
+
+
+@torch.no_grad()
+def eval_lm_loss(model, dataloader, device):
+  model.eval()
+  total_loss = 0.0
+  total_tokens = 0
+
+  for batch in dataloader:
+    b_ids, b_mask = batch['token_ids'].to(device), batch['attention_mask'].to(device)
+
+    logits = model(b_ids, b_mask)                      # (B, T, V)
+    logits = logits[:, :-1, :].contiguous()            # predict next token
+    labels = b_ids[:, 1:].contiguous()                 # next-token labels
+    label_mask = b_mask[:, 1:].contiguous()            # ignore padding labels
+
+    # flatten
+    logits = rearrange(logits, 'b t v -> (b t) v')
+    labels = labels.view(-1)
+    label_mask = label_mask.view(-1).float()
+
+    # token-level CE
+    loss_per_token = F.cross_entropy(logits, labels, reduction='none')  # (B*T,)
+    loss_per_token = loss_per_token * label_mask
+
+    total_loss += loss_per_token.sum().item()
+    total_tokens += label_mask.sum().item()
+
+  avg_loss = total_loss / max(1.0, total_tokens)
+  ppl = float(np.exp(avg_loss))
+  return avg_loss, ppl
 
 @torch.no_grad()
 def generate_submission_sonnets(args):
   device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
-  saved = torch.load(f'{args.epochs-1}_{args.filepath}', weights_only=False)
+  # saved = torch.load(f'{args.epochs-1}_{args.filepath}', weights_only=False)
+  saved = torch.load(f'best_{args.filepath}', weights_only=False)
 
   model = SonnetGPT(saved['args'])
   model.load_state_dict(saved['model'])
