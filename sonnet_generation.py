@@ -267,7 +267,9 @@ def eval_lm_loss(model, dataloader, device):
 def generate_submission_sonnets(args):
   device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
   # saved = torch.load(f'{args.epochs-1}_{args.filepath}', weights_only=False)
+  print("Start Loading Model...")
   saved = torch.load(f'best_{args.filepath}', weights_only=False)
+  print("Model Loaded")
 
   model = SonnetGPT(saved['args'])
   model.load_state_dict(saved['model'])
@@ -343,5 +345,5 @@ if __name__ == "__main__":
   args = get_args()
   args.filepath = f'{args.epochs}-{args.lr}-sonnet.pt'  # Save path.
   seed_everything(args.seed)  # Fix the seed for reproducibility.
-  train(args)
+  #train(args)
   generate_submission_sonnets(args)
