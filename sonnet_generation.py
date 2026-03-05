@@ -124,7 +124,11 @@ class SonnetGPT(nn.Module):
         [attention_mask, torch.ones((1, 1), dtype=torch.int64).to(self.get_device())], dim=1
       )
 
-    generated_output = self.tokenizer.decode(token_ids[0].cpu().numpy().tolist())[3:]
+    # generated_output = self.tokenizer.decode(token_ids[0].cpu().numpy().tolist())[3:]
+    prompt_len = encoding.shape[1]
+    new_tokens = token_ids[0, prompt_len:]  # (new_len,)
+    generated_output = self.tokenizer.decode(new_tokens.cpu().numpy().tolist())
+
     return token_ids, generated_output
 
 
