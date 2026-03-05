@@ -61,3 +61,4 @@ checkpoints/
 *.bak
 
 old_*
+*-sonnet.pt
