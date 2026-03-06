@@ -205,7 +205,7 @@ def train(args):
       logits = rearrange(logits[:, :-1].contiguous(), 'b t d -> (b t) d')  # Ignore the last prediction in the sequence.
       labels = b_ids[:, 1:].contiguous().flatten()  # Ignore the first token to compose the labels.
       loss = F.cross_entropy(logits, labels, reduction='mean')
-      print(labels)
+      # print(labels)
       loss.backward()
       optimizer.step()
 
@@ -307,8 +307,8 @@ def get_args():
   parser = argparse.ArgumentParser()
 
   parser.add_argument("--sonnet_path", type=str, default="data/sonnets.txt")
-  parser.add_argument("--held_out_sonnet_path", type=str, default="data/sonnets_held_out.txt")
-  parser.add_argument("--sonnet_out", type=str, default="predictions/generated_sonnets.txt")
+  parser.add_argument("--held_out_sonnet_path", type=str, default="data/sonnets_held_out_dev.txt")
+  parser.add_argument("--sonnet_out", type=str, default="predictions/generated_sonnets_dev.txt")
 
   parser.add_argument("--seed", type=int, default=123) #11711
   parser.add_argument("--epochs", type=int, default=10)
@@ -351,5 +351,6 @@ if __name__ == "__main__":
   args = get_args()
   args.filepath = f'{args.epochs}-{args.lr}-sonnet.pt'  # Save path.
   seed_everything(args.seed)  # Fix the seed for reproducibility.
+
   train(args)
   generate_submission_sonnets(args)
