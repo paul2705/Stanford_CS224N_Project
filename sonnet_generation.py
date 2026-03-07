@@ -26,6 +26,13 @@ from datasets import (
 from models.gpt2 import GPT2Model
 
 from optimizer import AdamW
+from peft import (
+  add_peft_args,
+  apply_peft,
+  build_peft_config_from_args,
+  count_parameters,
+  format_parameter_count,
+)
 
 TQDM_DISABLE = False
 
@@ -53,6 +60,13 @@ class SonnetGPT(nn.Module):
     # By default, fine-tune the full model. TODO: this is maybe not idea.
     for param in self.gpt.parameters():
       param.requires_grad = True
+
+    peft_cfg = build_peft_config_from_args(args)
+    if peft_cfg.mode != "none":
+      peft_info = apply_peft(self.gpt, peft_cfg)
+      print(f"[PEFT] mode={peft_cfg.mode}, info={peft_info}")
+
+    print(f"[Params] {format_parameter_count(count_parameters(self))}")
 
   def forward(self, input_ids, attention_mask):
     """
@@ -248,6 +262,7 @@ def get_args():
   parser.add_argument("--lr", type=float, help="learning rate", default=1e-5)
   parser.add_argument("--model_size", type=str, help="The model size as specified on hugging face.",
                       choices=['gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'], default='gpt2')
+  add_peft_args(parser)
 
   args = parser.parse_args()
   return args
