@@ -44,6 +44,8 @@ from peft import (
 )
 
 TQDM_DISABLE = False
+YES_TOKEN_ID = 8505
+NO_TOKEN_ID = 3919
 
 
 def dataloader_kwargs(args, use_gpu):
@@ -58,6 +60,10 @@ def dataloader_kwargs(args, use_gpu):
 
 def should_use_amp(args, device):
   return bool(args.use_amp and device.type == "cuda")
+
+
+def binary_pred_to_token_id(pred):
+  return YES_TOKEN_ID if int(pred) == 1 else NO_TOKEN_ID
 
 
 def get_device(use_gpu: bool) -> torch.device:
@@ -215,7 +221,7 @@ def train(args):
       b_ids, b_mask, labels = batch['token_ids'], batch['attention_mask'], batch['labels'].flatten()
       b_ids = b_ids.to(device)
       b_mask = b_mask.to(device)
-      labels = (labels == 8505).long().to(device)  # map "yes"(8505)->1, "no"(3919)->0
+      labels = (labels == YES_TOKEN_ID).long().to(device)  # map yes-token->1, no-token->0
 
       # Compute the loss, gradients, and update the model's parameters.
       with torch.cuda.amp.autocast(enabled=amp_enabled, dtype=amp_dtype):
@@ -342,15 +348,17 @@ def test(args):
   dev_para_acc, dev_para_f1, dev_para_y_pred, _, dev_para_sent_ids = model_eval_paraphrase(para_dev_dataloader, model, device)
   print(f"dev paraphrase acc :: {dev_para_acc :.3f}")
   test_para_y_pred, test_para_sent_ids = model_test_paraphrase(para_test_dataloader, model, device)
+  dev_para_token_pred = [binary_pred_to_token_id(p) for p in dev_para_y_pred]
+  test_para_token_pred = [binary_pred_to_token_id(p) for p in test_para_y_pred]
 
   with open(args.para_dev_out, "w+") as f:
     f.write(f"id \t Predicted_Is_Paraphrase \n")
-    for p, s in zip(dev_para_sent_ids, dev_para_y_pred):
+    for p, s in zip(dev_para_sent_ids, dev_para_token_pred):
       f.write(f"{p}, {s} \n")
 
   with open(args.para_test_out, "w+") as f:
     f.write(f"id \t Predicted_Is_Paraphrase \n")
-    for p, s in zip(test_para_sent_ids, test_para_y_pred):
+    for p, s in zip(test_para_sent_ids, test_para_token_pred):
       f.write(f"{p}, {s} \n")
 
   return dev_para_acc, dev_para_f1

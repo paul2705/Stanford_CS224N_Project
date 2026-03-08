@@ -39,6 +39,16 @@ def parse_csv_ints(value):
   return [int(x.strip()) for x in value.split(",") if x.strip()]
 
 
+def model_size_to_arch(model_size):
+  if model_size == "gpt2":
+    return 768, 12, 12
+  if model_size == "gpt2-medium":
+    return 1024, 24, 16
+  if model_size == "gpt2-large":
+    return 1280, 36, 20
+  raise ValueError(f"Unsupported model_size: {model_size}")
+
+
 def dataloader_kwargs(args, use_gpu):
   kwargs = {}
   if args.num_workers > 0:
@@ -75,7 +85,12 @@ class GPT2SentimentClassifier(torch.nn.Module):
   def __init__(self, config):
     super(GPT2SentimentClassifier, self).__init__()
     self.num_labels = config.num_labels
-    self.gpt = GPT2Model.from_pretrained()
+    self.gpt = GPT2Model.from_pretrained(
+      model=config.model_size,
+      d=config.hidden_size,
+      l=config.num_hidden_layers,
+      num_heads=config.num_heads,
+    )
 
     # Pretrain mode does not require updating GPT paramters.
     assert config.fine_tune_mode in ["last-linear-layer", "full-model"]
@@ -119,7 +134,7 @@ class SentimentDataset(Dataset):
   def __init__(self, dataset, args):
     self.dataset = dataset
     self.p = args
-    self.tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    self.tokenizer = GPT2Tokenizer.from_pretrained(args.model_size)
     self.tokenizer.pad_token = self.tokenizer.eos_token
 
   def __len__(self):
@@ -158,7 +173,7 @@ class SentimentTestDataset(Dataset):
   def __init__(self, dataset, args):
     self.dataset = dataset
     self.p = args
-    self.tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    self.tokenizer = GPT2Tokenizer.from_pretrained(args.model_size)
     self.tokenizer.pad_token = self.tokenizer.eos_token
 
   def __len__(self):
@@ -311,7 +326,10 @@ def train(args):
   # Init model.
   config = {'hidden_dropout_prob': args.hidden_dropout_prob,
             'num_labels': num_labels,
-            'hidden_size': 768,
+            'model_size': args.model_size,
+            'hidden_size': args.hidden_size,
+            'num_hidden_layers': args.num_hidden_layers,
+            'num_heads': args.num_heads,
             'data_dir': '.',
             'fine_tune_mode': args.fine_tune_mode,
             'peft_mode': args.peft_mode,
@@ -618,6 +636,10 @@ def build_task_config(base_args, task_name):
       fine_tune_mode=base_args.fine_tune_mode,
       dev_out=base_args.sst_dev_out,
       test_out=base_args.sst_test_out,
+      model_size=base_args.model_size,
+      hidden_size=base_args.hidden_size,
+      num_hidden_layers=base_args.num_hidden_layers,
+      num_heads=base_args.num_heads,
       peft_mode=base_args.peft_mode,
       freeze_base_model=base_args.freeze_base_model,
       unfreeze_layer_norm=base_args.unfreeze_layer_norm,
@@ -661,6 +683,10 @@ def build_task_config(base_args, task_name):
       fine_tune_mode=base_args.fine_tune_mode,
       dev_out=base_args.cfimdb_dev_out,
       test_out=base_args.cfimdb_test_out,
+      model_size=base_args.model_size,
+      hidden_size=base_args.hidden_size,
+      num_hidden_layers=base_args.num_hidden_layers,
+      num_heads=base_args.num_heads,
       peft_mode=base_args.peft_mode,
       freeze_base_model=base_args.freeze_base_model,
       unfreeze_layer_norm=base_args.unfreeze_layer_norm,
@@ -697,6 +723,8 @@ def get_args():
   parser = argparse.ArgumentParser()
   parser.add_argument("--run_name", type=str, default="baseline")
   parser.add_argument("--seed", type=int, default=11711)
+  parser.add_argument("--model_size", type=str, default="gpt2",
+                      choices=("gpt2", "gpt2-medium", "gpt2-large"))
   parser.add_argument("--fine-tune-mode", type=str,
                       help='last-linear-layer: the GPT parameters are frozen and the task specific head parameters are updated; full-model: GPT parameters are updated as well',
                       choices=('last-linear-layer', 'full-model'), default="last-linear-layer")
@@ -752,6 +780,7 @@ def get_args():
   args.sst_test_out = f"predictions/{args.fine_tune_mode}-sst-test-out.csv"
   args.cfimdb_dev_out = f"predictions/{args.fine_tune_mode}-cfimdb-dev-out.csv"
   args.cfimdb_test_out = f"predictions/{args.fine_tune_mode}-cfimdb-test-out.csv"
+  args.hidden_size, args.num_hidden_layers, args.num_heads = model_size_to_arch(args.model_size)
   return args
 
 
