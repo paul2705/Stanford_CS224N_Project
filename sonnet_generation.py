@@ -10,6 +10,8 @@ trains your SonnetGPT model and writes the required submission files.
 import argparse
 import random
 import torch
+import json
+import os
 
 import numpy as np
 import torch.nn.functional as F
@@ -21,7 +23,7 @@ from transformers import GPT2Tokenizer
 from einops import rearrange
 
 from datasets import (
-  SonnetsDataset, DPOSonnetsDataset
+  SonnetsDataset, DPOSonnetsDataset, OnPolicyDPODataset
 )
 from models.gpt2 import GPT2Model
 
@@ -180,6 +182,46 @@ def dpo_loss(pi_logprobs_winning, pi_logprobs_losing, ref_logprobs_winning, ref_
     return loss
 
 
+@torch.no_grad()
+def generate_on_policy_data(model, args, device, output_file="on_policy_dpo_data.json"):
+  """Generates the rejected samples using the SFT model."""
+  print("Generating On-Policy DPO Dataset")
+  model.eval()
+  
+  # We load the raw sonnets just like the SFT dataset
+  with open(args.sonnet_path, 'r', encoding='utf-8') as f:
+    text = f.read()
+  import re
+  sonnets = re.split(r'\n\s*\d+\s*\n', text)[1:]
+  sonnets = [s.strip() for s in sonnets]
+  
+  dpo_pairs = []
+  
+  for sonnet in tqdm(sonnets, desc="Generating rejected samples"):
+    lines = sonnet.split('\n')
+    if len(lines) < 4: continue
+    
+    # Isolate the first 3 lines to use as the prompt
+    prompt = '\n'.join(lines[:3]) + '\n'
+
+    encoding = model.tokenizer(prompt, return_tensors='pt', padding=False, truncation=True).to(device)
+    
+    # Generate the completion. 
+    # We use a slightly higher temperature (0.9) so the model makes mistakes we can penalize.
+    output = model.generate(encoding['input_ids'], temperature=0.9, top_p=0.9)[0][0]
+    decoded_output = model.tokenizer.decode(output)
+    
+    dpo_pairs.append({
+      "winning": sonnet,
+      "losing": decoded_output
+    })
+      
+  with open(output_file, 'w', encoding='utf-8') as f:
+    json.dump(dpo_pairs, f, indent=4)
+      
+  print(f"Saved {len(dpo_pairs)} pairs to {output_file}")
+
+
 def train(args):
   """Train GPT-2 for paraphrase detection on the Quora dataset."""
   device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
@@ -220,11 +262,22 @@ def train(args):
       saved = torch.load(args.load_sft_path, weights_only=False)
       model.load_state_dict(saved['model'])
 
+  if args.use_on_policy_dpo:
+    # Generate On-Policy Data
+    dpo_data_path = "on_policy_dpo_data.json"
+    
+    # Only generate if we haven't already created it for this run
+    if not os.path.exists(dpo_data_path):
+      generate_on_policy_data(model, args, device, output_file=dpo_data_path)
+
   # Phase 2. Direct Preference Optimization (DPO)
   print("Starting Phase 2: Direct Preference Optimization (DPO)")
 
   # Create DPO dataset
-  dpo_dataset = DPOSonnetsDataset(args.sonnet_path)
+  if args.use_on_policy_dpo:
+    dpo_dataset = OnPolicyDPODataset(dpo_data_path)
+  else:
+    dpo_dataset = DPOSonnetsDataset(args.sonnet_path)
   dpo_dataloader = DataLoader(dpo_dataset, shuffle=True, batch_size=args.batch_size,
                                  collate_fn=dpo_dataset.collate_fn)
 
@@ -312,7 +365,7 @@ def generate_submission_sonnets(args, input_path, output_path):
     full_sonnet = f'{decoded_output}\n\n'
     generated_sonnets.append((sonnet_id, full_sonnet))
 
-    print(f'{decoded_output}\n\n')
+    # print(f'{decoded_output}\n\n')
 
   with open(output_path, "w+") as f:
     f.write(f"--Generated Sonnets-- \n\n")
@@ -353,6 +406,7 @@ def get_args():
   # DPO Parameters
   parser.add_argument("--dpo_lr", type=float, help="learning rate for DPO", default=5e-6)
   parser.add_argument("--dpo_beta", type=float, help="DPO signal strength", default=0.1)
+  parser.add_argument("--use_on_policy_dpo", action='store_true', help="Whether to generate on-policy DPO data and train with it.")
 
   # Checkpoint parameters
   parser.add_argument("--sft_save_path", type=str, default="sft_sonnet.pt", help="Where to save the SFT model")

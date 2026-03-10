@@ -11,6 +11,7 @@ import csv
 import re
 import torch
 import random
+import json
 
 from torch.utils.data import Dataset
 from transformers import GPT2Tokenizer
@@ -299,16 +300,6 @@ class DPOSonnetsDataset(Dataset):
 
   def __len__(self):
     return len(self.sonnets)
-
-  def corrupt_sonnet(self, sonnet_text):
-    """Heuristic modification: Shuffle the lines after the first 3 lines to create a 'rejected' sample."""
-    lines = sonnet_text.split('\n')
-    if len(lines) > 3:
-        prompt = lines[:3]
-        response = lines[3:]
-        random.shuffle(response) # Corrupt the rhyme scheme and semantic flow
-        return '\n'.join(prompt + response)
-    return sonnet_text
   
   def corrupt_sonnet(self, sonnet_text):
       """Randomly selects a hard negative strategy."""
@@ -354,5 +345,36 @@ class DPOSonnetsDataset(Dataset):
       'winning_mask': encoding_winning['attention_mask'],
       'losing_ids': encoding_losing['input_ids'],
       'losing_mask': encoding_losing['attention_mask'],
+      'sent_ids': idx
+    }
+
+class OnPolicyDPODataset(Dataset):
+  def __init__(self, json_file_path):
+    self.tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
+    self.tokenizer.pad_token = self.tokenizer.eos_token
+    
+    with open(json_file_path, 'r', encoding='utf-8') as f:
+        self.data = json.load(f)
+
+  def __len__(self):
+    return len(self.data)
+
+  def __getitem__(self, idx):
+    item = self.data[idx]
+    return (idx, item['winning'], item['losing'])
+
+  def collate_fn(self, all_data):
+    idx = [example[0] for example in all_data]
+    chosen_sonnets = [example[1] for example in all_data]
+    rejected_sonnets = [example[2] for example in all_data]
+
+    encoding_chosen = self.tokenizer(chosen_sonnets, return_tensors='pt', padding=True, truncation=True)
+    encoding_rejected = self.tokenizer(rejected_sonnets, return_tensors='pt', padding=True, truncation=True)
+
+    return {
+      'winning_ids': encoding_chosen['input_ids'],
+      'winning_mask': encoding_chosen['attention_mask'],
+      'losing_ids': encoding_rejected['input_ids'],
+      'losing_mask': encoding_rejected['attention_mask'],
       'sent_ids': idx
     }
