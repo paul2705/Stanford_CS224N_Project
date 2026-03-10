@@ -396,25 +396,25 @@ if __name__ == "__main__":
   print('Evaluating on SST...')
   test(config)
 
-  print('Training Sentiment Classifier on cfimdb...')
-  config = SimpleNamespace(
-    filepath='cfimdb-classifier.pt',
-    # lr=args.lr,
-    lr=2e-5,
-    use_gpu=args.use_gpu,
-    # epochs=args.epochs,
-    epochs=5,
-    batch_size=8,
-    hidden_dropout_prob=args.hidden_dropout_prob,
-    train='data/ids-cfimdb-train.csv',
-    dev='data/ids-cfimdb-dev.csv',
-    test='data/ids-cfimdb-test-student.csv',
-    fine_tune_mode=args.fine_tune_mode,
-    dev_out='predictions/' + args.fine_tune_mode + '-cfimdb-dev-out.csv',
-    test_out='predictions/' + args.fine_tune_mode + '-cfimdb-test-out.csv'
-  )
+  # print('Training Sentiment Classifier on cfimdb...')
+  # config = SimpleNamespace(
+  #   filepath='cfimdb-classifier.pt',
+  #   # lr=args.lr,
+  #   lr=2e-5,
+  #   use_gpu=args.use_gpu,
+  #   # epochs=args.epochs,
+  #   epochs=5,
+  #   batch_size=8,
+  #   hidden_dropout_prob=args.hidden_dropout_prob,
+  #   train='data/ids-cfimdb-train.csv',
+  #   dev='data/ids-cfimdb-dev.csv',
+  #   test='data/ids-cfimdb-test-student.csv',
+  #   fine_tune_mode=args.fine_tune_mode,
+  #   dev_out='predictions/' + args.fine_tune_mode + '-cfimdb-dev-out.csv',
+  #   test_out='predictions/' + args.fine_tune_mode + '-cfimdb-test-out.csv'
+  # )
 
-  train(config)
+  # train(config)
 
-  print('Evaluating on cfimdb...')
-  test(config)
+  # print('Evaluating on cfimdb...')
+  # test(config)

@@ -61,7 +61,7 @@ class SonnetGPT(nn.Module):
     not just the distribution over next tokens for the last token!
     """
     """
-    Produce logits for each token in the sequence.
+    Forward pass that returns logits for every token position.
     Output shape: (batch_size, seq_len, vocab_size)
     """
 
