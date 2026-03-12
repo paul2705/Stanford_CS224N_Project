@@ -83,7 +83,7 @@ class SonnetGPT(nn.Module):
       return param.device
 
   @torch.no_grad()
-  def generate(self, encoding, temperature=0.7, top_p=0.9, max_length=128):
+  def generate(self, encoding, temperature=0.7, top_p=0.9, max_length=128, use_beam_search=False, num_beams=5, length_penalty=0.7):
     """
     Generates an original sonnet using top-p sampling and softmax temperature.
 
@@ -92,58 +92,132 @@ class SonnetGPT(nn.Module):
     there are many.
     """
     token_ids = encoding.to(self.get_device())
-    attention_mask = torch.ones(token_ids.shape, dtype=torch.int64).to(self.get_device())
+    prompt_len = token_ids.shape[1]
+    newline_token_ids = torch.tensor([198, 628], device=self.get_device())
+    repetition_penalty = 1.2
 
-    newline_token_id = self.tokenizer.encode('\n')[0]
+    if use_beam_search and num_beams > 1:
+      # Beams store tuples of: (sequence_tensor, accumulated_log_probability)
+      beams = [(token_ids, 0.0)]
+      
+      for _ in range(max_length):
+        new_candidates = []
+        
+        for seq, score in beams:
+          if seq[0, -1].item() == self.tokenizer.eos_token_id:
+            new_candidates.append((seq, score))
+            continue
+          
+          attention_mask = torch.ones(seq.shape, dtype=torch.int64).to(self.get_device())
+          logits_sequence = self.forward(seq, attention_mask)
+          next_token_logits = logits_sequence[:, -1, :]
 
-    for _ in range(max_length):
-      # Forward pass to get logits
-      logits_sequence = self.forward(token_ids, attention_mask)
-      logits_last_token = logits_sequence[:, -1, :] / temperature  # Apply temperature scaling
+          current_newlines = torch.isin(seq, newline_token_ids).sum().item()
+          if current_newlines < 13:
+            next_token_logits[0, self.tokenizer.eos_token_id] = -float('Inf')
+          elif current_newlines >= 14:
+            next_token_logits[0, :] = -float('Inf')
+            next_token_logits[0, self.tokenizer.eos_token_id] = 0.0
 
-      # Prevent EOS token until we have generated enough lines
-      current_newlines = (token_ids == newline_token_id).sum().item()
-      if current_newlines < 13:
-          logits_last_token[0, self.tokenizer.eos_token_id] = -float('Inf')
+          # Apply repetition penalty
+          unique_tokens = torch.unique(seq[0])
+          
+          penalty_mask = ~torch.isin(unique_tokens, newline_token_ids)
+          penalty_tokens = unique_tokens[penalty_mask]
+          
+          logits_to_penalize = next_token_logits[0, penalty_tokens]
+          penalized_logits = torch.where(
+            logits_to_penalize < 0,
+            logits_to_penalize * repetition_penalty,
+            logits_to_penalize / repetition_penalty
+          )
+          next_token_logits[0, penalty_tokens] = penalized_logits
+          
+          # Get the top 'num_beams' probable next tokens
+          next_token_logprobs = F.log_softmax(next_token_logits, dim=-1)
+          topk_logprobs, topk_indices = torch.topk(next_token_logprobs, num_beams, dim=-1)
+          
+          # Create a new branch for each of the top-k tokens
+          for i in range(num_beams):
+            next_token = topk_indices[:, i].unsqueeze(0)
+            new_seq = torch.cat([seq, next_token], dim=1)
+            
+            new_score = score + topk_logprobs[0, i].item()
+            new_candidates.append((new_seq, new_score))
+        
+        # Sort candidates by score with a length penalty
+        beams = sorted(
+          new_candidates,
+          key=lambda x: x[1] / (x[0].shape[1] ** length_penalty),
+          reverse=True
+        )
+        beams = beams[:num_beams]
+        
+        # Early stopping
+        if all(b[0][0, -1].item() == self.tokenizer.eos_token_id for b in beams):
+          break
+          
+      best_seq = beams[0][0]
+      generated_output = self.tokenizer.decode(best_seq[0, prompt_len:].cpu().tolist(), skip_special_tokens=True)
+      return best_seq, generated_output
+    
+    else:
+      attention_mask = torch.ones(token_ids.shape, dtype=torch.int64).to(self.get_device())
 
-      # Apply repetition penalty
-      repetition_penalty = 1.2
-      for t in set(token_ids[0].tolist()):
-          if t == newline_token_id:
-              continue
-          if logits_last_token[0, t] < 0:
-              logits_last_token[0, t] *= repetition_penalty
-          else:
-              logits_last_token[0, t] /= repetition_penalty
+      for _ in range(max_length):
+        # Forward pass to get logits
+        logits_sequence = self.forward(token_ids, attention_mask)
+        logits_last_token = logits_sequence[:, -1, :] / temperature  # Apply temperature scaling
 
-      # Convert logits to probabilities
-      probs = torch.nn.functional.softmax(logits_last_token, dim=-1)
+        # Prevent EOS token until we have generated enough lines
+        current_newlines = torch.isin(token_ids, newline_token_ids).sum().item()
+        if current_newlines >= 14:
+            break
+        if current_newlines < 13:
+            logits_last_token[0, self.tokenizer.eos_token_id] = -float('Inf')
 
-      # Top-p (nucleus) sampling
-      sorted_probs, sorted_indices = torch.sort(probs, descending=True)
-      cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
-      top_p_mask = cumulative_probs <= top_p
-      top_p_mask[..., 1:] = top_p_mask[..., :-1].clone()  # Shift mask right for proper thresholding
-      top_p_mask[..., 0] = True  # Always include the highest probability token
-      filtered_probs = sorted_probs * top_p_mask  # Zero out unlikely tokens
-      filtered_probs /= filtered_probs.sum(dim=-1, keepdim=True)  # Normalize probabilities
+        # Apply repetition penalty
+        unique_tokens = torch.unique(token_ids[0])
+        
+        penalty_mask = ~torch.isin(unique_tokens, newline_token_ids)
+        penalty_tokens = unique_tokens[penalty_mask]
+        
+        logits_to_penalize = logits_last_token[0, penalty_tokens]
+        penalized_logits = torch.where(
+          logits_to_penalize < 0,
+          logits_to_penalize * repetition_penalty,
+          logits_to_penalize / repetition_penalty
+        )
+        logits_last_token[0, penalty_tokens] = penalized_logits
 
-      # Sample from filtered distribution
-      sampled_index = torch.multinomial(filtered_probs, 1)
-      sampled_token = sorted_indices.gather(dim=-1, index=sampled_index)
+        # Convert logits to probabilities
+        probs = torch.nn.functional.softmax(logits_last_token, dim=-1)
 
-      # Stop if end-of-sequence token is reached
-      if sampled_token.item() == self.tokenizer.eos_token_id:
-        break
+        # Top-p (nucleus) sampling
+        sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+        cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+        top_p_mask = cumulative_probs <= top_p
+        top_p_mask[..., 1:] = top_p_mask[..., :-1].clone()  # Shift mask right for proper thresholding
+        top_p_mask[..., 0] = True  # Always include the highest probability token
+        filtered_probs = sorted_probs * top_p_mask  # Zero out unlikely tokens
+        filtered_probs /= filtered_probs.sum(dim=-1, keepdim=True)  # Normalize probabilities
 
-      # Append sampled token
-      token_ids = torch.cat([token_ids, sampled_token], dim=1)
-      attention_mask = torch.cat(
-        [attention_mask, torch.ones((1, 1), dtype=torch.int64).to(self.get_device())], dim=1
-      )
+        # Sample from filtered distribution
+        sampled_index = torch.multinomial(filtered_probs, 1)
+        sampled_token = sorted_indices.gather(dim=-1, index=sampled_index)
 
-    generated_output = self.tokenizer.decode(token_ids[0].cpu().numpy().tolist())[3:]
-    return token_ids, generated_output
+        # Stop if end-of-sequence token is reached
+        if sampled_token.item() == self.tokenizer.eos_token_id:
+          break
+
+        # Append sampled token
+        token_ids = torch.cat([token_ids, sampled_token], dim=1)
+        attention_mask = torch.cat(
+          [attention_mask, torch.ones((1, 1), dtype=torch.int64).to(self.get_device())], dim=1
+        )
+
+      generated_output = self.tokenizer.decode(token_ids[0, prompt_len:].cpu().tolist(), skip_special_tokens=True)
+      return token_ids, generated_output
 
 
 def save_model(model, optimizer, args, filepath):
@@ -184,11 +258,10 @@ def dpo_loss(pi_logprobs_winning, pi_logprobs_losing, ref_logprobs_winning, ref_
 
 @torch.no_grad()
 def generate_on_policy_data(model, args, device, output_file="on_policy_dpo_data.json"):
-  """Generates the rejected samples using the SFT model."""
-  print("Generating On-Policy DPO Dataset")
+  """Generates the losing samples using the SFT model."""
+  print("Generating On-Policy DPO Dataset...")
   model.eval()
   
-  # We load the raw sonnets just like the SFT dataset
   with open(args.sonnet_path, 'r', encoding='utf-8') as f:
     text = f.read()
   import re
@@ -201,15 +274,19 @@ def generate_on_policy_data(model, args, device, output_file="on_policy_dpo_data
     lines = sonnet.split('\n')
     if len(lines) < 4: continue
     
-    # Isolate the first 3 lines to use as the prompt
     prompt = '\n'.join(lines[:3]) + '\n'
 
     encoding = model.tokenizer(prompt, return_tensors='pt', padding=False, truncation=True).to(device)
     
-    # Generate the completion. 
-    # We use a slightly higher temperature (0.9) so the model makes mistakes we can penalize.
-    output = model.generate(encoding['input_ids'], temperature=0.9, top_p=0.9)[0][0]
-    decoded_output = model.tokenizer.decode(output)
+    # Generate the completion
+    output = model.generate(
+      encoding['input_ids'], 
+      temperature=0.9, 
+      top_p=0.9,
+      use_beam_search=args.use_beam_search,
+      num_beams=args.num_beams
+    )[0][0]
+    decoded_output = model.tokenizer.decode(output, skip_special_tokens=True)
     
     dpo_pairs.append({
       "winning": sonnet,
@@ -247,7 +324,7 @@ def train(args):
         # Standard cross-entropy loss
         logits = rearrange(logits[:, :-1].contiguous(), 'b t d -> (b t) d')
         labels = b_ids[:, 1:].contiguous().flatten()
-        loss = F.cross_entropy(logits, labels, reduction='mean')
+        loss = F.cross_entropy(logits, labels, ignore_index=model.tokenizer.pad_token_id, reduction='mean')
         loss.backward()
         sft_optimizer.step()
         sft_loss += loss.item()
@@ -266,7 +343,6 @@ def train(args):
     # Generate On-Policy Data
     dpo_data_path = "on_policy_dpo_data.json"
     
-    # Only generate if we haven't already created it for this run
     if not os.path.exists(dpo_data_path):
       generate_on_policy_data(model, args, device, output_file=dpo_data_path)
 
@@ -293,7 +369,6 @@ def train(args):
   
   beta = args.dpo_beta
 
-  # Run for the specified number of epochs.
   for epoch in range(args.dpo_epochs):
     model.train()
     dpo_train_loss = 0
@@ -314,7 +389,7 @@ def train(args):
           ref_logits_w = ref_model(w_ids, w_mask)
           ref_logits_l = ref_model(l_ids, l_mask)
 
-      # Calculate sequence log probabilities (shifted by 1 for next-token prediction)
+      # Calculate sequence log probabilities
       pi_logprobs_w = get_batch_log_probs(logits_w[:, :-1, :], w_ids[:, 1:], pad_token_id)
       pi_logprobs_l = get_batch_log_probs(logits_l[:, :-1, :], l_ids[:, 1:], pad_token_id)
 
@@ -346,7 +421,10 @@ def train(args):
 def generate_submission_sonnets(args, input_path, output_path):
   device = torch.device('cuda') if args.use_gpu else torch.device('cpu')
   # saved = torch.load(f'{args.epochs-1}_{args.filepath}', weights_only=False)
-  saved = torch.load(f'{args.dpo_epochs-1}_{args.filepath}', weights_only=False)
+  if args.dpo_epochs > 0:
+    saved = torch.load(f'{args.dpo_epochs-1}_{args.filepath}', weights_only=False)
+  else:
+    saved = torch.load(args.load_sft_path, weights_only=False)
 
   model = SonnetGPT(saved['args'])
   model.load_state_dict(saved['model'])
@@ -360,8 +438,15 @@ def generate_submission_sonnets(args, input_path, output_path):
   for batch in held_out_sonnet_dataset:
     sonnet_id = batch[0]
     encoding = model.tokenizer(batch[1], return_tensors='pt', padding=False, truncation=True).to(device)
-    output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)[0][0]
-    decoded_output = model.tokenizer.decode(output)
+    # output = model.generate(encoding['input_ids'], temperature=args.temperature, top_p=args.top_p)[0][0]
+    output = model.generate(
+      encoding['input_ids'], 
+      temperature=args.temperature, 
+      top_p=args.top_p,
+      use_beam_search=args.use_beam_search,
+      num_beams=args.num_beams
+    )[0][0]
+    decoded_output = model.tokenizer.decode(output, skip_special_tokens=True)
     full_sonnet = f'{decoded_output}\n\n'
     generated_sonnets.append((sonnet_id, full_sonnet))
 
@@ -411,6 +496,10 @@ def get_args():
   # Checkpoint parameters
   parser.add_argument("--sft_save_path", type=str, default="sft_sonnet.pt", help="Where to save the SFT model")
   parser.add_argument("--load_sft_path", type=str, default=None, help="Path to a saved SFT model to load (skips SFT phase)")
+
+  # Beam Search parameters
+  parser.add_argument("--use_beam_search", action='store_true', help="Use beam search instead of sampling for final generation.")
+  parser.add_argument("--num_beams", type=int, default=5, help="Number of beams to use if beam search is enabled.")
 
   args = parser.parse_args()
   return args
