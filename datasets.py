@@ -181,73 +181,59 @@ def break_meter(sonnet_text):
     fillers = ["really", "just", "very", "truly", "quite", "simply", "actually"]
     lines = sonnet_text.split('\n')
     
-    # Pick 2 or 3 random lines (after the prompt) to ruin the meter
+    # Pick random lines to insert filler word to break the meter
     if len(lines) > 3:
-        lines_to_corrupt = random.sample(range(3, len(lines)), min(3, len(lines)-3))
-        for i in lines_to_corrupt:
-            words = lines[i].split()
-            if len(words) > 3:
-                # Insert a filler word randomly into the middle of the line
-                insert_idx = random.randint(1, len(words) - 1)
-                words.insert(insert_idx, random.choice(fillers))
-                lines[i] = " ".join(words)
+      lines_to_corrupt = random.sample(range(3, len(lines)), min(3, len(lines)-3))
+      for i in lines_to_corrupt:
+        words = lines[i].split()
+        if len(words) > 3:
+          insert_idx = random.randint(1, len(words) - 1)
+          words.insert(insert_idx, random.choice(fillers))
+          lines[i] = " ".join(words)
                 
     return '\n'.join(lines)
 
 
 def get_rhyme_part(pronunciation):
-    """
-    Extracts the rhyming part of a word's pronunciation.
-    In English poetry, a rhyme starts from the final stressed vowel to the end of the word.
-    """
-    # Iterate backwards through the phonemes
+    """Extracts the rhyming part of a word's pronunciation."""
     for i in reversed(range(len(pronunciation))):
-        phoneme = pronunciation[i]
-        # Vowels in cmudict end with a number indicating stress (0, 1, or 2)
-        if phoneme[-1].isdigit(): 
-            # Return from this stressed vowel to the end of the word
-            return pronunciation[i:]
+      phoneme = pronunciation[i]
+      if phoneme[-1].isdigit():
+        return pronunciation[i:]
             
-    # Fallback if no vowels are found (rare)
     return pronunciation
 
 def do_they_rhyme(word1, word2):
     """Checks if two words share the same phonetic rhyming sequence."""
-    # Words missing from the dictionary return empty lists
     prons1 = cmu_dict.get(word1.lower(), [])
     prons2 = cmu_dict.get(word2.lower(), [])
     
-    # A single word can have multiple valid pronunciations (e.g., read vs read)
     for p1 in prons1:
-        for p2 in prons2:
-            if get_rhyme_part(p1) == get_rhyme_part(p2):
-                return True # A rhyme was found!
+      for p2 in prons2:
+        if get_rhyme_part(p1) == get_rhyme_part(p2):
+          return True
                 
-    return False # No rhyming pronunciations found
+    return False
 
 
 def get_synonym(word):
-    """Fetches a random, STRICTLY non-rhyming synonym for a given word."""
+    """Return a random non-rhyming synonym of a given word."""
     synonyms = set()
     
-    # 1. Gather all synonyms
-    for syn in wordnet.synsets(word):
-        for lemma in syn.lemmas():
-            syn_name = lemma.name().replace('_', ' ').lower()
-            if syn_name != word.lower():
-                synonyms.add(syn_name)
+    for synonym in wordnet.synsets(word):
+      for lemma in synonym.lemmas():
+        syn_name = lemma.name().replace('_', ' ').lower()
+        if syn_name != word.lower():
+          synonyms.add(syn_name)
                 
-    # 2. Filter out any synonyms that phonetically rhyme with the original word
     valid_hard_negatives = []
-    for syn in synonyms:
-        # We only want single-word synonyms (WordNet sometimes returns phrases like 'look_at')
-        if " " not in syn:
-            if not do_they_rhyme(word, syn):
-                valid_hard_negatives.append(syn)
+    for synonym in synonyms:
+      if " " not in synonym:
+        if not do_they_rhyme(word, synonym):
+          valid_hard_negatives.append(synonym)
                 
-    # 3. Return a random valid synonym, or None if we couldn't find one
     if not valid_hard_negatives:
-        return None
+      return None
         
     return random.choice(valid_hard_negatives)
 
@@ -257,25 +243,20 @@ def break_rhyme_nltk(sonnet_text):
     lines = sonnet_text.split('\n')
     
     if len(lines) > 3:
-        # Iterate through the generated response lines (ignoring the 3-line prompt)
-        for i in range(3, len(lines)):
-            words = lines[i].split()
-            if not words: 
-                continue
-            
-            # Strip punctuation from the last word to ensure a clean WordNet lookup
-            original_last_word = words[-1]
-            clean_last_word = original_last_word.strip(",.?!;:").lower()
-            
-            synonym = get_synonym(clean_last_word)
-            
-            if synonym:
-                # Replace the old word with the new synonym, preserving the original punctuation
-                new_last_word = original_last_word.lower().replace(clean_last_word, synonym)
-                lines[i] = " ".join(words[:-1] + [new_last_word])
-                
-                # Breaking just one line's rhyme is enough to create a hard negative
-                break 
+      for i in range(3, len(lines)):
+        words = lines[i].split()
+        if not words: 
+          continue
+        
+        original_last_word = words[-1]
+        clean_last_word = original_last_word.strip(",.?!;:").lower()
+        
+        synonym = get_synonym(clean_last_word)
+        
+        if synonym:
+          new_last_word = original_last_word.lower().replace(clean_last_word, synonym)
+          lines[i] = " ".join(words[:-1] + [new_last_word])
+          break 
                 
     return '\n'.join(lines)
 
@@ -306,24 +287,27 @@ class DPOSonnetsDataset(Dataset):
       strategy = random.choice(['shuffle', 'swap', 'meter', 'rhyme', 'rhyme', 'rhyme'])
       
       if strategy == 'shuffle':
-          lines = sonnet_text.split('\n')
-          if len(lines) > 3:
-              prompt = lines[:3]
-              response = lines[3:]
-              random.shuffle(response)
-              return '\n'.join(prompt + response)
+        lines = sonnet_text.split('\n')
+        if len(lines) > 3:
+          prompt = lines[:3]
+          response = lines[3:]
+          random.shuffle(response)
+          return '\n'.join(prompt + response)
       
       elif strategy == 'swap':
-          lines = sonnet_text.split('\n')
-          if len(lines) > 5:
-              lines[4], lines[5] = lines[5], lines[4] 
-          return '\n'.join(lines)
+        lines = sonnet_text.split('\n')
+        if len(lines) > 5:
+          lines[4], lines[5] = lines[5], lines[4] 
+        return '\n'.join(lines)
           
       elif strategy == 'meter':
-          return break_meter(sonnet_text)
+        return break_meter(sonnet_text)
           
       else:
-          return break_rhyme_nltk(sonnet_text)
+        corrupted = break_rhyme_nltk(sonnet_text)
+        if corrupted == sonnet_text:
+          return break_meter(sonnet_text)
+        return corrupted
       
       return sonnet_text
 
@@ -354,7 +338,7 @@ class OnPolicyDPODataset(Dataset):
     self.tokenizer.pad_token = self.tokenizer.eos_token
     
     with open(json_file_path, 'r', encoding='utf-8') as f:
-        self.data = json.load(f)
+      self.data = json.load(f)
 
   def __len__(self):
     return len(self.data)
