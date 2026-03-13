@@ -12,7 +12,6 @@
 *.md text eol=lf
 *.rst text eol=lf
 # Git LFS — model weights and binary artifacts
-*.pt filter=lfs diff=lfs merge=lfs -text
 *.pth filter=lfs diff=lfs merge=lfs -text
 *.bin filter=lfs diff=lfs merge=lfs -text
 *.ckpt filter=lfs diff=lfs merge=lfs -text
