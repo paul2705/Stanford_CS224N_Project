@@ -6,7 +6,8 @@ import zipfile
 required_files = [p for p in os.listdir('.') if p.endswith('.py')] + \
                  [f'predictions/{p}' for p in os.listdir('predictions')] + \
                      [f'models/{p}' for p in os.listdir('models')] + \
-                        [f'modules/{p}' for p in os.listdir('modules')]
+                        [f'modules/{p}' for p in os.listdir('modules')] + \
+                        [f'peft/{p}' for p in os.listdir('peft')]
 
 def main():
     aid = 'cs224n_default_final_project_submission'
